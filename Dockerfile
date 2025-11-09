@@ -12,6 +12,9 @@ COPY Cargo.toml Cargo.lock ./
 
 # Copy source code
 COPY src ./src
+COPY assets ./assets
+COPY static ./static
+COPY templates ./templates
 
 # Build the application
 RUN cargo build --color=always --profile release
