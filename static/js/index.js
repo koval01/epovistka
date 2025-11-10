@@ -67,10 +67,6 @@
                 this.showError("Будь ласка, введіть адресу");
                 return false;
             }
-            if (!data.issuer || data.issuer.trim().length === 0) {
-                this.showError("Будь ласка, введіть видавника");
-                return false;
-            }
             return true;
         }
 

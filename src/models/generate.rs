@@ -6,7 +6,6 @@ use thiserror::Error;
 pub struct GenerateRequest {
     pub name: String,
     pub address: String,
-    pub issuer: String,
 }
 
 impl GenerateRequest {
@@ -19,10 +18,6 @@ impl GenerateRequest {
             return Err(GenerateError::ValidationError("Address cannot be empty".to_string()));
         }
 
-        if self.issuer.trim().is_empty() {
-            return Err(GenerateError::ValidationError("Issuer cannot be empty".to_string()));
-        }
-
         if self.name.len() > 100 {
             return Err(GenerateError::ValidationError("Name is too long".to_string()));
         }
@@ -31,17 +26,12 @@ impl GenerateRequest {
             return Err(GenerateError::ValidationError("Address is too long".to_string()));
         }
 
-        if self.issuer.len() > 100 {
-            return Err(GenerateError::ValidationError("Issuer is too long".to_string()));
-        }
-
         Ok(())
     }
 
     pub fn sanitize(&mut self) {
         self.name = self.name.trim().to_string();
         self.address = self.address.trim().to_string();
-        self.issuer = self.issuer.trim().to_string();
     }
 }
 
