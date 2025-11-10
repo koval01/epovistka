@@ -9,6 +9,7 @@ use crate::models::generate::{GenerateRequest, GenerateError};
 
 const TEMPLATE_PATH: &str = "assets/template.png";
 const SIGN_PATH: &str = "assets/sign.png";
+const WATERMARK_PATH: &str = "assets/watermark.png";
 const FONT_PATH: &str = "assets/font.ttf";
 
 #[derive(Debug, Clone)]
@@ -21,6 +22,7 @@ struct FieldPosition {
 pub struct ImageGenerator {
     template: Arc<RgbaImage>,
     sign: Arc<RgbaImage>,
+    watermark: Arc<RgbaImage>,
     font: Arc<Font<'static>>,
     fields: std::collections::HashMap<&'static str, Vec<FieldPosition>>,
     sign_positions: Vec<FieldPosition>,
@@ -36,6 +38,11 @@ impl ImageGenerator {
         let sign_image = image::open(SIGN_PATH)
             .map_err(|e| format!("Failed to open sign image: {}", e))?;
         let sign = sign_image.to_rgba8();
+
+        // Load watermark image
+        let watermark_image = image::open(WATERMARK_PATH)
+            .map_err(|e| format!("Failed to open watermark image: {}", e))?;
+        let watermark = watermark_image.to_rgba8();
 
         // Load font
         let font_data = std::fs::read(FONT_PATH)
@@ -85,6 +92,7 @@ impl ImageGenerator {
         Ok(Self {
             template: Arc::new(template),
             sign: Arc::new(sign),
+            watermark: Arc::new(watermark),
             font: Arc::new(font),
             fields,
             sign_positions,
@@ -113,6 +121,10 @@ impl ImageGenerator {
         self.draw_all_signatures(&mut image)
             .map_err(|e| GenerateError::GenerationError(e.to_string()))?;
 
+        // Draw watermarks with unpredictable placement and duplication
+        self.draw_all_watermarks(&mut image)
+            .map_err(|e| GenerateError::GenerationError(e.to_string()))?;
+
         // Convert to bytes using the new image library API
         let mut bytes = Vec::new();
         let encoder = image::codecs::png::PngEncoder::new(&mut bytes);
@@ -136,6 +148,111 @@ impl ImageGenerator {
         let minute = rng.random_range(0..12) * 5; // 00, 05, 10, ..., 55
 
         format!("{:02}:{:02}", hour, minute)
+    }
+
+    fn draw_all_watermarks(&self, image: &mut RgbaImage) -> Result<(), Box<dyn std::error::Error>> {
+        let mut rng = rand::rng();
+
+        // Generate random number of watermarks (2-5 copies)
+        let num_watermarks = rng.random_range(5..10);
+
+        for _ in 0..num_watermarks {
+            // Random scale (smaller for more subtle effect)
+            let scale_factor = rng.random_range(0.4..1.0);
+
+            // Random rotation angle (-45 to 45 degrees)
+            let rotation_degrees = rng.random_range(-45.0..45.0);
+
+            // Random opacity (10-30% for subtle but visible effect)
+            let opacity = rng.random_range(0.08..0.2);
+
+            // Random position - allow watermarks to extend beyond image bounds
+            let x_offset = rng.random_range(-350.0..(image.width() as f32 + 350.0));
+            let y_offset = rng.random_range(-800.0..(image.height() as f32 + 800.0));
+
+            self.draw_watermark_at_position(
+                image,
+                x_offset,
+                y_offset,
+                scale_factor,
+                rotation_degrees,
+                opacity,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn draw_watermark_at_position(
+        &self,
+        image: &mut RgbaImage,
+        x: f32,
+        y: f32,
+        scale_factor: f32,
+        rotation_degrees: f32,
+        opacity: f32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let watermark = self.watermark.as_ref();
+
+        // Calculate new dimensions
+        let new_width = (watermark.width() as f32 * scale_factor) as u32;
+        let new_height = (watermark.height() as f32 * scale_factor) as u32;
+
+        // Resize watermark
+        let resized_watermark = image::imageops::resize(
+            watermark,
+            new_width,
+            new_height,
+            image::imageops::FilterType::Lanczos3,
+        );
+
+        let start_x = x as i32;
+        let start_y = y as i32;
+        let radians = rotation_degrees.to_radians();
+        let cos_angle = radians.cos();
+        let sin_angle = radians.sin();
+
+        // Calculate center of rotation
+        let center_x = resized_watermark.width() as f32 / 2.0;
+        let center_y = resized_watermark.height() as f32 / 2.0;
+
+        // Draw the rotated watermark
+        for target_x in 0..image.width() {
+            for target_y in 0..image.height() {
+                // Calculate relative coordinates
+                let rel_x = target_x as i32 - start_x;
+                let rel_y = target_y as i32 - start_y;
+
+                // Apply inverse rotation to find source pixel
+                let src_x_f = (rel_x as f32 - center_x) * cos_angle + (rel_y as f32 - center_y) * sin_angle + center_x;
+                let src_y_f = -(rel_x as f32 - center_x) * sin_angle + (rel_y as f32 - center_y) * cos_angle + center_y;
+
+                let src_x = src_x_f.round() as i32;
+                let src_y = src_y_f.round() as i32;
+
+                if src_x >= 0 && src_x < resized_watermark.width() as i32 &&
+                    src_y >= 0 && src_y < resized_watermark.height() as i32 {
+
+                    let pixel = resized_watermark.get_pixel(src_x as u32, src_y as u32);
+
+                    // Skip fully transparent pixels
+                    if pixel[3] == 0 {
+                        continue;
+                    }
+
+                    let background_pixel = image.get_pixel(target_x, target_y);
+
+                    // Apply additional opacity to the watermark
+                    let mut adjusted_pixel = *pixel;
+                    adjusted_pixel[3] = (pixel[3] as f32 * opacity) as u8;
+
+                    let blended = self.blend_pixels(*background_pixel, adjusted_pixel);
+                    image.put_pixel(target_x, target_y, blended);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn draw_all_text(
