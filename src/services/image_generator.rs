@@ -51,6 +51,16 @@ impl ImageGenerator {
                 FieldPosition { x: 145.0, y: 730.0 },
                 FieldPosition { x: 265.0, y: 1020.0 },
             ]),
+            ("year", vec![
+                FieldPosition { x: 367.0, y: 352.0 },
+                FieldPosition { x: 676.0, y: 453.0 },
+                FieldPosition { x: 392.0, y: 843.0 },
+                FieldPosition { x: 483.0, y: 1096.0 },
+                FieldPosition { x: 836.0, y: 1096.0 },
+            ]),
+            ("time", vec![
+                FieldPosition { x: 753.0, y: 457.0 },
+            ]),
         ]);
 
         Ok(Self {
@@ -103,7 +113,7 @@ impl ImageGenerator {
         // Draw name
         if let Some(positions) = self.fields.get("name") {
             for position in positions {
-                let x = position.x + rng.random_range(-2.0..2.0);
+                let x = position.x + rng.random_range(-2.0..3.0);
                 let y = position.y + rng.random_range(-2.0..2.0);
                 self.draw_text_at_position(image, &request.name, x, y, Scale::uniform(rng.random_range(26.0..38.0)), color)?;
             }
@@ -112,7 +122,7 @@ impl ImageGenerator {
         // Draw address
         if let Some(positions) = self.fields.get("address") {
             for position in positions {
-                let x = position.x + rng.random_range(-2.0..2.0);
+                let x = position.x + rng.random_range(-2.0..4.0);
                 let y = position.y + rng.random_range(-2.0..2.0);
                 self.draw_text_at_position(image, &request.address, x, y, Scale::uniform(rng.random_range(26.0..34.0)), color)?;
             }
@@ -121,7 +131,7 @@ impl ImageGenerator {
         // Draw issuer
         if let Some(positions) = self.fields.get("issuer") {
             for position in positions {
-                let x = position.x + rng.random_range(-2.0..2.0);
+                let x = position.x + rng.random_range(-2.0..3.0);
                 let y = position.y + rng.random_range(-2.0..2.0);
                 self.draw_text_at_position(image, &request.issuer, x, y, Scale::uniform(rng.random_range(26.0..38.0)), color)?;
             }
@@ -131,11 +141,30 @@ impl ImageGenerator {
         let number_str = number.to_string();
         if let Some(positions) = self.fields.get("number") {
             for position in positions {
-                let x = position.x + rng.random_range(-2.0..2.0);
-                let y = position.y + rng.random_range(-2.0..2.0);
+                let x = position.x + rng.random_range(-2.0..5.0);
+                let y = position.y + rng.random_range(-2.2..1.0);
                 self.draw_text_at_position(image, &number_str, x, y, Scale::uniform(rng.random_range(36.0..48.0)), color)?;
             }
         }
+
+        // Draw year
+        if let Some(positions) = self.fields.get("year") {
+            for position in positions {
+                let x = position.x + rng.random_range(-1.7..1.7);
+                let y = position.y + rng.random_range(-1.2..1.2);
+                self.draw_text_at_position(image, "25", x, y, Scale::uniform(rng.random_range(32.0..37.0)), color)?;
+            }
+        }
+
+        // Draw time
+        if let Some(positions) = self.fields.get("time") {
+            for position in positions {
+                let x = position.x + rng.random_range(-2.0..8.0);
+                let y = position.y + rng.random_range(-2.2..2.2);
+                self.draw_text_at_position(image, "12:34", x, y, Scale::uniform(rng.random_range(27.0..34.0)), color)?;
+            }
+        }
+
 
         Ok(())
     }
