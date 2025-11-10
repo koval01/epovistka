@@ -122,8 +122,8 @@ impl ImageGenerator {
             .map_err(|e| GenerateError::GenerationError(e.to_string()))?;
 
         // Draw watermarks with unpredictable placement and duplication
-        self.draw_all_watermarks(&mut image)
-            .map_err(|e| GenerateError::GenerationError(e.to_string()))?;
+        // self.draw_all_watermarks(&mut image)
+        //     .map_err(|e| GenerateError::GenerationError(e.to_string()))?;
 
         // Convert to bytes using the new image library API
         let mut bytes = Vec::new();
@@ -150,30 +150,68 @@ impl ImageGenerator {
         format!("{:02}:{:02}", hour, minute)
     }
 
+    #[allow(dead_code)]
     fn draw_all_watermarks(&self, image: &mut RgbaImage) -> Result<(), Box<dyn std::error::Error>> {
         let mut rng = rand::rng();
 
-        // Generate random number of watermarks (2-5 copies)
-        let num_watermarks = rng.random_range(5..10);
+        // Generate random number of watermarks (3-6 copies for better coverage)
+        let num_watermarks = rng.random_range(2..5);
+
+        let image_width = image.width() as f32;
+        let image_height = image.height() as f32;
+
+        // Define safe margins to ensure watermarks are fully visible
+        let margin_x = 100.0;
+        let margin_y = 100.0;
+
+        // Calculate safe area for watermark placement
+        let safe_width = image_width - 2.0 * margin_x;
+        let safe_height = image_height - 2.0 * margin_y;
+
+        // Track placed watermarks to avoid excessive overlap
+        let mut placed_positions = Vec::new();
+        let min_distance = 200.0; // Minimum distance between watermark centers
 
         for _ in 0..num_watermarks {
-            // Random scale (smaller for more subtle effect)
-            let scale_factor = rng.random_range(0.4..1.0);
+            let mut attempts = 0;
+            let max_attempts = 20; // Prevent infinite loop
 
-            // Random rotation angle (-45 to 45 degrees)
-            let rotation_degrees = rng.random_range(-45.0..45.0);
+            let (x, y, scale_factor, rotation_degrees, opacity) = loop {
+                attempts += 1;
+                if attempts > max_attempts {
+                    // If we can't find a good position after many attempts,
+                    // use a random position even if it overlaps
+                    break self.generate_watermark_params(
+                        margin_x, margin_y, safe_width, safe_height, &mut rng
+                    );
+                }
 
-            // Random opacity (10-30% for subtle but visible effect)
-            let opacity = rng.random_range(0.08..0.2);
+                let params = self.generate_watermark_params(
+                    margin_x, margin_y, safe_width, safe_height, &mut rng
+                );
 
-            // Random position - allow watermarks to extend beyond image bounds
-            let x_offset = rng.random_range(-350.0..(image.width() as f32 + 350.0));
-            let y_offset = rng.random_range(-800.0..(image.height() as f32 + 800.0));
+                // Check if this position is too close to existing watermarks
+                let too_close = placed_positions.iter().any(|(existing_x, existing_y)| {
+                    let distance = ((params.0 - existing_x).powi(2) + (params.1 - existing_y).powi(2)).sqrt();
+                    distance < min_distance
+                });
+
+                if !too_close {
+                    placed_positions.push((params.0, params.1));
+                    break params;
+                }
+
+                // For the first watermark, always accept it to ensure we have at least one
+                if placed_positions.is_empty() {
+                    placed_positions.push((params.0, params.1));
+                    break params;
+                }
+            };
 
             self.draw_watermark_at_position(
                 image,
-                x_offset,
-                y_offset,
+                x,
+                y,
                 scale_factor,
                 rotation_degrees,
                 opacity,
@@ -181,6 +219,55 @@ impl ImageGenerator {
         }
 
         Ok(())
+    }
+
+    fn generate_watermark_params(
+        &self,
+        margin_x: f32,
+        margin_y: f32,
+        safe_width: f32,
+        safe_height: f32,
+        rng: &mut impl Rng,
+    ) -> (f32, f32, f32, f32, f32) {
+        // Random scale with reasonable bounds for visibility
+        let scale_factor = rng.random_range(0.3..0.9);
+
+        // Random rotation angle (-30 to 30 degrees for better readability)
+        let rotation_degrees = rng.random_range(-40.0..40.0);
+
+        // Random opacity (15-35% for consistent visibility)
+        let opacity = rng.random_range(0.04..0.1);
+
+        // Calculate watermark dimensions for positioning
+        let watermark_width = self.watermark.width() as f32 * scale_factor;
+        let watermark_height = self.watermark.height() as f32 * scale_factor;
+
+        // Account for rotation by adding extra margin
+        let rotated_diagonal = (watermark_width.powi(2) + watermark_height.powi(2)).sqrt();
+        let extra_margin = rotated_diagonal * 0.6;
+
+        // Calculate adjusted safe area
+        let adj_safe_width = safe_width - 2.0 * extra_margin;
+        let adj_safe_height = safe_height - 2.0 * extra_margin;
+
+        // Ensure we have positive safe area
+        let adj_safe_width = adj_safe_width.max(watermark_width);
+        let adj_safe_height = adj_safe_height.max(watermark_height);
+
+        // Generate position within adjusted safe area
+        let x = if adj_safe_width > 0.0 {
+            margin_x + extra_margin + rng.random_range(0.0..adj_safe_width)
+        } else {
+            margin_x + extra_margin
+        };
+
+        let y = if adj_safe_height > 0.0 {
+            margin_y + extra_margin + rng.random_range(0.0..adj_safe_height)
+        } else {
+            margin_y + extra_margin
+        };
+
+        (x, y, scale_factor, rotation_degrees, opacity)
     }
 
     fn draw_watermark_at_position(
@@ -198,7 +285,7 @@ impl ImageGenerator {
         let new_width = (watermark.width() as f32 * scale_factor) as u32;
         let new_height = (watermark.height() as f32 * scale_factor) as u32;
 
-        // Resize watermark
+        // Resize watermark with better filter for scaling down
         let resized_watermark = image::imageops::resize(
             watermark,
             new_width,
@@ -212,26 +299,41 @@ impl ImageGenerator {
         let cos_angle = radians.cos();
         let sin_angle = radians.sin();
 
-        // Calculate center of rotation
+        // Calculate center of rotation (center of the watermark)
         let center_x = resized_watermark.width() as f32 / 2.0;
         let center_y = resized_watermark.height() as f32 / 2.0;
 
-        // Draw the rotated watermark
-        for target_x in 0..image.width() {
-            for target_y in 0..image.height() {
-                // Calculate relative coordinates
-                let rel_x = target_x as i32 - start_x;
-                let rel_y = target_y as i32 - start_y;
+        // Pre-calculate bounds for efficiency
+        let image_width = image.width() as i32;
+        let image_height = image.height() as i32;
+        let watermark_width = resized_watermark.width() as i32;
+        let watermark_height = resized_watermark.height() as i32;
+
+        // Calculate the bounding box of the rotated watermark to optimize iteration
+        let rotated_width = (watermark_width as f32 * cos_angle.abs() + watermark_height as f32 * sin_angle.abs()) as i32;
+        let rotated_height = (watermark_width as f32 * sin_angle.abs() + watermark_height as f32 * cos_angle.abs()) as i32;
+
+        let min_x = (start_x - rotated_width / 2).max(0);
+        let max_x = (start_x + rotated_width / 2).min(image_width);
+        let min_y = (start_y - rotated_height / 2).max(0);
+        let max_y = (start_y + rotated_height / 2).min(image_height);
+
+        // Iterate only over the relevant area where the watermark might be
+        for target_x in min_x..max_x {
+            for target_y in min_y..max_y {
+                // Calculate relative coordinates from watermark center
+                let rel_x = target_x - start_x;
+                let rel_y = target_y - start_y;
 
                 // Apply inverse rotation to find source pixel
-                let src_x_f = (rel_x as f32 - center_x) * cos_angle + (rel_y as f32 - center_y) * sin_angle + center_x;
-                let src_y_f = -(rel_x as f32 - center_x) * sin_angle + (rel_y as f32 - center_y) * cos_angle + center_y;
+                let src_x_f = (rel_x as f32) * cos_angle + (rel_y as f32) * sin_angle + center_x;
+                let src_y_f = (-(rel_x as f32) * sin_angle + (rel_y as f32) * cos_angle) + center_y;
 
                 let src_x = src_x_f.round() as i32;
                 let src_y = src_y_f.round() as i32;
 
-                if src_x >= 0 && src_x < resized_watermark.width() as i32 &&
-                    src_y >= 0 && src_y < resized_watermark.height() as i32 {
+                if src_x >= 0 && src_x < watermark_width &&
+                    src_y >= 0 && src_y < watermark_height {
 
                     let pixel = resized_watermark.get_pixel(src_x as u32, src_y as u32);
 
@@ -240,14 +342,14 @@ impl ImageGenerator {
                         continue;
                     }
 
-                    let background_pixel = image.get_pixel(target_x, target_y);
+                    let background_pixel = image.get_pixel(target_x as u32, target_y as u32);
 
                     // Apply additional opacity to the watermark
                     let mut adjusted_pixel = *pixel;
                     adjusted_pixel[3] = (pixel[3] as f32 * opacity) as u8;
 
                     let blended = self.blend_pixels(*background_pixel, adjusted_pixel);
-                    image.put_pixel(target_x, target_y, blended);
+                    image.put_pixel(target_x as u32, target_y as u32, blended);
                 }
             }
         }
